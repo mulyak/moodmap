@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+
+{% block title %}Профиль{% endblock %}
+
+{% block content %}
+<div id="map-background"></div>
+
+<div class="profile-container">
+    <div class="profile-header">
+        <h1>Мой профиль</h1>
+        <div class="profile-actions">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Вернуться к карте</a>
+            <a href="{{ url_for('logout') }}" class="logout-link">Выйти</a>
+        </div>
+    </div>
+    
+    <div class="profile-content">
+        <div class="profile-section">
+            <h2>Мои настроения</h2>
+            
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label>Сортировать по:</label>
+                    <select id="sort-select">
+                        <option value="newest">Сначала новые</option>
+                        <option value="oldest">Сначала старые</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Фильтр эмодзи:</label>
+                    <div class="emoji-filter">
+                        <button class="emoji-btn" data-emoji="😊">😊</button>
+                        <button class="emoji-btn" data-emoji="😢">😢</button>
+                        <button class="emoji-btn" data-emoji="😡">😡</button>
+                        <button class="emoji-btn" data-emoji="😎">😎</button>
+                        <button class="emoji-btn" data-emoji="🥰">🥰</button>
+                        <button class="emoji-btn" data-emoji="😴">😴</button>
+                        <button class="emoji-btn" data-emoji="🤔">🤔</button>
+                        <button class="emoji-btn" data-emoji="😷">😷</button>
+                    </div>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Фильтр времени:</label>
+                    <div class="time-filters">
+                        <button class="time-filter-btn" data-hours="1">1 час</button>
+                        <button class="time-filter-btn" data-hours="6">6 часов</button>
+                        <button class="time-filter-btn" data-hours="24">24 часа</button>
+                        <button class="time-filter-btn" data-hours="72">3 дня</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="moods-list" id="moods-list">
+                {% if moods %}
+                    {% for mood in moods %}
+                        <div class="mood-card" data-emoji="{{ mood.emoji }}" data-timestamp="{{ mood.timestamp }}">
+                            <div class="mood-emoji">{{ mood.emoji }}</div>
+                            <div class="mood-details">
+                                {% if mood.text %}
+                                    <p class="mood-text">{{ mood.text }}</p>
+                                {% endif %}
+                                <p class="mood-time">{{ mood.formatted_time }}</p>
+                            </div>
+                            <button class="delete-mood" data-id="{{ mood.id }}">✕</button>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="no-moods">У вас пока нет настроений. Поделитесь своим настроением на карте!</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="profile-section">
+            <h2>Статистика</h2>
+            <div class="stats-container">
+                <div class="stat-card">
+                    <div class="stat-title">Всего настроений</div>
+                    <div class="stat-value">{{ moods|length }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Самое частое настроение</div>
+                    <div class="stat-value" id="most-common-emoji">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Инициализация фоновой карты
+        const mapBackground = L.map('map-background', {
+            zoomControl: false,
+            attributionControl: false,
+            dragging: false,
+            touchZoom: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            boxZoom: false,
+            tap: false,
+            keyboard: false
+        });
+        
+        // Попытка получить местоположение пользователя для карты фона
+        if ('geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    mapBackground.setView([position.coords.latitude, position.coords.longitude], 13);
+                },
+                function(error) {
+                    mapBackground.setView([51.505, -0.09], 13);
+                }
+            );
+        } else {
+            mapBackground.setView([51.505, -0.09], 13);
+        }
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(mapBackground);
+        
+        // Преобразование UTC timestamp в локальное время пользователя
+        document.querySelectorAll('.mood-time').forEach(timeElement => {
+            const timestamp = timeElement.closest('.mood-card').getAttribute('data-timestamp');
+            if (timestamp) {
+                timeElement.textContent = MoodMapUtils.formatDate(timestamp);
+            }
+        });
+        
+        // Фильтрация и сортировка
+        const moodsList = document.getElementById('moods-list');
+        const sortSelect = document.getElementById('sort-select');
+        const emojiButtons = document.querySelectorAll('.emoji-filter .emoji-btn');
+        
+        let activeEmojiFilters = [];
+        let currentSort = 'newest';
+        let activeTimeFilter = null;
+        let allMoods = [];
+        
+        // Получаем все настроения при загрузке страницы
+        fetchUserMoods();
+        
+        // Подсчет самого частого эмодзи
+        updateMostCommonEmoji();
+        
+        // Обработчик изменения сортировки
+        sortSelect.addEventListener('change', function() {
+            currentSort = this.value;
+            sortMoods();
+        });
+        
+        // Обработчики нажатия на кнопки эмодзи
+        emojiButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const wasActive = this.classList.contains('active');
+                const emoji = this.getAttribute('data-emoji');
+                
+                if (wasActive) {
+                    // Удаляем активную кнопку
+                    this.classList.remove('active');
+                } else {
+                    // Добавляем активную кнопку
+                    this.classList.add('active');
+                }
+                
+                // Применяем фильтры к имеющимся настроениям
+                filterMoodsByEmoji();
+            });
+        });
+        
+        // Обработчики кнопок фильтра времени
+        document.querySelectorAll('.time-filter-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const wasActive = this.classList.contains('active');
+                
+                // Сначала сбросим активное состояние всех кнопок
+                document.querySelectorAll('.time-filter-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                if (!wasActive) {
+                    this.classList.add('active');
+                    activeTimeFilter = parseInt(this.getAttribute('data-hours'));
+                } else {
+                    activeTimeFilter = null;
+                }
+                
+                // Запрашиваем настроения с новым фильтром времени
+                fetchUserMoods();
+            });
+        });
+        
+        // Функция для загрузки настроений пользователя
+        function fetchUserMoods() {
+            let url = '/api/user-moods';
+            const params = new URLSearchParams();
+            
+            // Добавляем фильтр времени, если активен
+            if (activeTimeFilter) {
+                params.append('hours', activeTimeFilter);
+            }
+            
+            // Формируем URL с параметрами
+            if (params.toString()) {
+                url += '?' + params.toString();
+            }
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    allMoods = data;
+                    displayMoods();
+                })
+                .catch(error => {
+                    console.error('Ошибка при получении настроений:', error);
+                });
+        }
+        
+        // Функция для фильтрации настроений по эмодзи
+        function filterMoodsByEmoji() {
+            // Получаем все активные фильтры эмодзи
+            const activeEmojiBtns = document.querySelectorAll('.emoji-filter .emoji-btn.active');
+            const activeEmojis = Array.from(activeEmojiBtns).map(btn => btn.getAttribute('data-emoji'));
+            
+            // Фильтруем отображение на клиенте
+            filterAndDisplayMoods(activeEmojis);
+        }
+        
+        // Функция для фильтрации и отображения настроений
+        function filterAndDisplayMoods(activeEmojis) {
+            // Очищаем список
+            moodsList.innerHTML = '';
+            
+            // Фильтруем настроения по активным эмодзи
+            const filteredMoods = activeEmojis.length === 0 
+                ? allMoods 
+                : allMoods.filter(mood => activeEmojis.includes(mood.emoji));
+            
+            if (filteredMoods.length === 0) {
+                moodsList.innerHTML = '<p class="no-moods">Нет настроений, соответствующих выбранному фильтру.</p>';
+                
+                // Обновление счетчика общего количества настроений
+                document.querySelector('.stat-card .stat-value').textContent = '0';
+                document.getElementById('most-common-emoji').textContent = '-';
+                return;
+            }
+            
+            // Создаем карточки для отфильтрованных настроений
+            filteredMoods.forEach(mood => {
+                const card = document.createElement('div');
+                card.className = 'mood-card';
+                card.setAttribute('data-emoji', mood.emoji);
+                card.setAttribute('data-timestamp', mood.timestamp);
+                
+                card.innerHTML = `
+                    <div class="mood-emoji">${mood.emoji}</div>
+                    <div class="mood-details">
+                        ${mood.text ? '<p class="mood-text">' + mood.text + '</p>' : ''}
+                        <p class="mood-time">${MoodMapUtils.formatDate(mood.timestamp)}</p>
+                    </div>
+                    <button class="delete-mood" data-id="${mood.id}">✕</button>
+                `;
+                
+                // Добавляем обработчик удаления
+                card.querySelector('.delete-mood').addEventListener('click', function() {
+                    const moodId = this.getAttribute('data-id');
+                    if (confirm('Вы уверены, что хотите удалить это настроение?')) {
+                        deleteMood(moodId);
+                    }
+                });
+                
+                moodsList.appendChild(card);
+            });
+            
+            // Сортируем карточки
+            sortMoods();
+            
+            // Обновляем статистику
+            updateMostCommonEmoji();
+        }
+        
+        // Функция отображения настроений
+        function displayMoods() {
+            // Активные фильтры эмодзи при отображении
+            const activeEmojiBtns = document.querySelectorAll('.emoji-filter .emoji-btn.active');
+            const activeEmojis = Array.from(activeEmojiBtns).map(btn => btn.getAttribute('data-emoji'));
+            
+            // Фильтруем и отображаем настроения
+            filterAndDisplayMoods(activeEmojis);
+        }
+        
+        function sortMoods() {
+            const moodCards = Array.from(document.querySelectorAll('.mood-card'));
+            
+            moodCards.sort((a, b) => {
+                // Используем MoodMapUtils для получения правильных временных меток
+                const timestampA = MoodMapUtils.convertToUserTimezone(a.getAttribute('data-timestamp')).getTime();
+                const timestampB = MoodMapUtils.convertToUserTimezone(b.getAttribute('data-timestamp')).getTime();
+                
+                if (currentSort === 'newest') {
+                    return timestampB - timestampA;
+                } else {
+                    return timestampA - timestampB;
+                }
+            });
+            
+            // Очистка и добавление отсортированных карточек
+            const cardsContainer = document.getElementById('moods-list');
+            let visibleCount = 0;
+            
+            // Сначала удаляем все карточки
+            while (cardsContainer.firstChild) {
+                cardsContainer.removeChild(cardsContainer.firstChild);
+            }
+            
+            // Добавляем отсортированные карточки
+            moodCards.forEach(card => {
+                if (card.style.display !== 'none') {
+                    cardsContainer.appendChild(card);
+                    visibleCount++;
+                }
+            });
+            
+            // Обновление текста о количестве настроений
+            if (visibleCount === 0) {
+                cardsContainer.innerHTML = '<p class="no-moods">Нет настроений, соответствующих выбранному фильтру.</p>';
+            }
+            
+            // Обновление статистики
+            updateMostCommonEmoji();
+        }
+        
+        function deleteMood(moodId) {
+            fetch(`/api/moods/${moodId}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (response.ok) {
+                    // Удаляем настроение из массива allMoods
+                    allMoods = allMoods.filter(mood => mood.id !== parseInt(moodId));
+                    
+                    // Удаление элемента из DOM
+                    const card = document.querySelector(`.mood-card button[data-id="${moodId}"]`).closest('.mood-card');
+                    card.remove();
+                    
+                    // Проверка, остались ли еще настроения
+                    if (allMoods.length === 0) {
+                        moodsList.innerHTML = '<p class="no-moods">У вас пока нет настроений. Поделитесь своим настроением на карте!</p>';
+                    }
+                    
+                    // Обновление статистики
+                    updateMostCommonEmoji();
+                    
+                    // Обновление счетчика настроений
+                    const totalMoodsElement = document.querySelector('.stat-value');
+                    totalMoodsElement.textContent = allMoods.length.toString();
+                } else {
+                    alert('Не удалось удалить настроение. Пожалуйста, попробуйте снова.');
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при удалении настроения:', error);
+                alert('Произошла ошибка при удалении настроения.');
+            });
+        }
+        
+        function updateMostCommonEmoji() {
+            const visibleCards = document.querySelectorAll('.mood-card:not([style*="display: none"])');
+            const emojiCounts = {};
+            let maxCount = 0;
+            let mostCommonEmoji = '-';
+            
+            visibleCards.forEach(card => {
+                const emoji = card.getAttribute('data-emoji');
+                
+                if (!emojiCounts[emoji]) {
+                    emojiCounts[emoji] = 0;
+                }
+                
+                emojiCounts[emoji]++;
+                
+                if (emojiCounts[emoji] > maxCount) {
+                    maxCount = emojiCounts[emoji];
+                    mostCommonEmoji = emoji;
+                }
+            });
+            
+            document.getElementById('most-common-emoji').textContent = mostCommonEmoji;
+            
+            // Обновление счетчика общего количества настроений
+            document.querySelector('.stat-card .stat-value').textContent = visibleCards.length.toString();
+        }
+    });
+</script>
+{% endblock %}
+
+{% block extra_css %}
+{% endblock %} 

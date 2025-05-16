@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Вход{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <form method="POST" action="{{ url_for('login') }}" class="auth-form" id="login-form">
+        <h1>MoodMap</h1>
+        <h2>Вход</h2>
+        <div class="form-group">
+            <label for="phone_number">Номер телефона</label>
+            <input type="tel" id="phone_number" name="phone_number" required>
+            <div class="error-message" id="phone-error" style="display: none; color: red; margin-top: 5px;">Номер телефона должен содержать не менее 10 цифр</div>
+        </div>
+        <div class="form-group">
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Войти</button>
+        </div>
+        <div class="auth-links">
+            <p>Нет аккаунта? <a href="{{ url_for('register') }}">Регистрация</a></p>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('login-form');
+        const phoneInput = document.getElementById('phone_number');
+        const phoneError = document.getElementById('phone-error');
+        
+        form.addEventListener('submit', function(e) {
+            // Удаляем все нецифровые символы для проверки
+            const phoneDigits = phoneInput.value.replace(/\D/g, '');
+            
+            // Проверяем длину номера телефона (должно быть минимум 10 цифр)
+            if (phoneDigits.length < 10) {
+                e.preventDefault();
+                phoneError.style.display = 'block';
+                phoneInput.focus();
+            } else {
+                phoneError.style.display = 'none';
+            }
+        });
+        
+        // Скрываем сообщение об ошибке при вводе
+        phoneInput.addEventListener('input', function() {
+            phoneError.style.display = 'none';
+        });
+    });
+</script>
+{% endblock %} 

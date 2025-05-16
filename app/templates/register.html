@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Регистрация{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <form method="POST" action="{{ url_for('register') }}" class="auth-form" id="register-form">
+        <h1>MoodMap</h1>
+        <h2>Регистрация</h2>
+        <div class="form-group">
+            <label for="phone_number">Номер телефона</label>
+            <input type="tel" id="phone_number" name="phone_number" required>
+            <div class="error-message" id="phone-error" style="display: none; color: red; margin-top: 5px;">Номер телефона должен содержать не менее 10 цифр</div>
+        </div>
+        <div class="form-group">
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Зарегистрироваться</button>
+        </div>
+        <div class="auth-links">
+            <p>Уже есть аккаунт? <a href="{{ url_for('login') }}">Войти</a></p>
+        </div>
+        <div class="privacy-policy">
+            <p>Регистрируясь, вы соглашаетесь с <a href="#" id="privacy-link">Политикой конфиденциальности</a></p>
+        </div>
+    </form>
+</div>
+
+<div id="privacy-modal" class="modal">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <h2>Политика конфиденциальности</h2>
+        <p>Политика конфиденциальности</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Валидация формы
+        const form = document.getElementById('register-form');
+        const phoneInput = document.getElementById('phone_number');
+        const phoneError = document.getElementById('phone-error');
+        
+        form.addEventListener('submit', function(e) {
+            // Удаляем все нецифровые символы для проверки
+            const phoneDigits = phoneInput.value.replace(/\D/g, '');
+            
+            // Проверяем длину номера телефона (должно быть минимум 10 цифр)
+            if (phoneDigits.length < 10) {
+                e.preventDefault();
+                phoneError.style.display = 'block';
+                phoneInput.focus();
+            } else {
+                phoneError.style.display = 'none';
+            }
+        });
+        
+        // Скрываем сообщение об ошибке при вводе
+        phoneInput.addEventListener('input', function() {
+            phoneError.style.display = 'none';
+        });
+        
+        // Код для модального окна
+        const modal = document.getElementById('privacy-modal');
+        const link = document.getElementById('privacy-link');
+        const closeBtn = document.querySelector('.close');
+        
+        link.onclick = function(e) {
+            e.preventDefault();
+            modal.style.display = 'block';
+        }
+        
+        closeBtn.onclick = function() {
+            modal.style.display = 'none';
+        }
+        
+        window.onclick = function(e) {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        }
+    });
+</script>
+{% endblock %} 
